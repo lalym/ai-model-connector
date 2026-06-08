@@ -166,10 +166,16 @@ class AIChatView(View):
 
     def _sync_response(self, config, messages):
         provider = config.provider
-        if provider in ("openai", "openai_compatible"):
+        ROUTERAI_BASE = "https://routerai.ru/api"
+        if provider in ("openai", "openai_compatible", "routerai"):
+            base_url = None
+            if provider == "openai_compatible":
+                base_url = config.base_url
+            elif provider == "routerai":
+                base_url = ROUTERAI_BASE
             response = run_openai(
                 config.api_key, config.model_name, messages,
-                base_url=config.base_url if provider == "openai_compatible" else None
+                base_url=base_url
             )
             content = response.choices[0].message.content
             return JsonResponse({"content": content})
@@ -187,10 +193,17 @@ class AIChatView(View):
     def _stream_response(self, config, messages):
         provider = config.provider
 
+        ROUTERAI_BASE = "https://routerai.ru/api"
+
         def openai_generator():
+            _base = None
+            if config.provider == "openai_compatible":
+                _base = config.base_url
+            elif config.provider == "routerai":
+                _base = ROUTERAI_BASE
             stream = run_openai(
                 config.api_key, config.model_name, messages,
-                base_url=config.base_url if config.provider == "openai_compatible" else None,
+                base_url=_base,
                 stream=True
             )
             for chunk in stream:
@@ -215,6 +228,7 @@ class AIChatView(View):
         generators = {
             "openai": openai_generator,
             "openai_compatible": openai_generator,
+            "routerai": openai_generator,
             "anthropic": anthropic_generator,
             "google": google_generator,
         }

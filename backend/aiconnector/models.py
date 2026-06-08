@@ -6,6 +6,7 @@ class AIModelConfig(models.Model):
         ("openai", "OpenAI"),
         ("anthropic", "Anthropic"),
         ("google", "Google Gemini"),
+        ("routerai", "RouterAI"),
         ("openai_compatible", "OpenAI-compatible"),
     ]
 

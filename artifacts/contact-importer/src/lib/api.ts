@@ -3,7 +3,7 @@ const BASE = "/api";
 export interface AIModelConfig {
   id: number;
   name: string;
-  provider: "openai" | "anthropic" | "google" | "openai_compatible";
+  provider: "openai" | "anthropic" | "google" | "routerai" | "openai_compatible";
   model_name: string;
   base_url?: string | null;
   api_key_set: boolean;

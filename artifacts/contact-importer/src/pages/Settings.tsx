@@ -31,13 +31,15 @@ const PROVIDER_LABELS: Record<AIModelConfig["provider"], string> = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   google: "Google Gemini",
+  routerai: "RouterAI",
   openai_compatible: "OpenAI-compatible",
 };
 
-const PROVIDER_DEFAULTS: Record<AIModelConfig["provider"], { model: string; baseUrl?: string }> = {
+const PROVIDER_DEFAULTS: Record<AIModelConfig["provider"], { model: string; baseUrl?: string; hint?: string }> = {
   openai: { model: "gpt-4o" },
   anthropic: { model: "claude-3-5-sonnet-20241022" },
   google: { model: "gemini-1.5-pro" },
+  routerai: { model: "gpt-4o", hint: "Unified gateway to 100+ models (OpenAI, Anthropic, Gemini and more) via routerai.ru" },
   openai_compatible: { model: "", baseUrl: "" },
 };
 
@@ -197,6 +199,14 @@ export default function Settings() {
                   </div>
                 </div>
 
+                {form.provider === "routerai" && (
+                  <div className="rounded-md bg-muted/60 border px-3 py-2 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">RouterAI</span> — unified gateway to 100+ models (GPT-4o, Claude, Gemini and more) via{" "}
+                    <a href="https://routerai.ru" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">routerai.ru</a>.
+                    Base URL is set automatically.
+                  </div>
+                )}
+
                 {form.provider === "openai_compatible" && (
                   <div className="space-y-1.5">
                     <Label htmlFor="baseurl">Base URL</Label>
@@ -299,7 +309,7 @@ export default function Settings() {
 
         {/* Footer note */}
         <p className="text-xs text-muted-foreground text-center mt-8">
-          Supported: OpenAI · Anthropic · Google Gemini · Any OpenAI-compatible endpoint
+          Supported: OpenAI · Anthropic · Google Gemini · RouterAI · Any OpenAI-compatible endpoint
         </p>
       </div>
     </div>
