@@ -8,7 +8,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from .models import AIModelConfig
 
-ROUTERAI_BASE = "https://routerai.ru/api"
+ROUTERAI_BASE = "https://routerai.ru/api"           # base for REST paths (e.g. /v1/models)
+ROUTERAI_CHAT_BASE = "https://routerai.ru/api/v1"  # base_url for OpenAI SDK (appends /chat/completions)
 
 
 def run_openai(api_key, model_name, messages, base_url=None, stream=False):
@@ -256,64 +257,73 @@ class AIChatView(View):
 
     def _sync_response(self, config, messages):
         provider = config.provider
-        ROUTERAI_BASE = "https://routerai.ru/api"
-        if provider in ("openai", "openai_compatible", "routerai"):
-            base_url = None
-            if provider == "openai_compatible":
-                base_url = config.base_url
-            elif provider == "routerai":
-                base_url = ROUTERAI_BASE
-            response = run_openai(
-                config.api_key, config.model_name, messages,
-                base_url=base_url
-            )
-            content = response.choices[0].message.content
-            return JsonResponse({"content": content})
-        elif provider == "anthropic":
-            response = run_anthropic(config.api_key, config.model_name, messages)
-            content = response.content[0].text
-            return JsonResponse({"content": content})
-        elif provider == "google":
-            response = run_google(config.api_key, config.model_name, messages)
-            content = response.text
-            return JsonResponse({"content": content})
-        else:
-            return JsonResponse({"error": f"Unknown provider: {provider}"}, status=400)
+        try:
+            if provider in ("openai", "openai_compatible", "routerai"):
+                base_url = None
+                if provider == "openai_compatible":
+                    base_url = config.base_url
+                elif provider == "routerai":
+                    base_url = ROUTERAI_CHAT_BASE
+                response = run_openai(
+                    config.api_key, config.model_name, messages,
+                    base_url=base_url
+                )
+                content = response.choices[0].message.content
+                return JsonResponse({"content": content})
+            elif provider == "anthropic":
+                response = run_anthropic(config.api_key, config.model_name, messages)
+                content = response.content[0].text
+                return JsonResponse({"content": content})
+            elif provider == "google":
+                response = run_google(config.api_key, config.model_name, messages)
+                content = response.text
+                return JsonResponse({"content": content})
+            else:
+                return JsonResponse({"error": f"Unknown provider: {provider}"}, status=400)
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
 
     def _stream_response(self, config, messages):
         provider = config.provider
 
-        ROUTERAI_BASE = "https://routerai.ru/api"
-
         def openai_generator():
-            _base = None
-            if config.provider == "openai_compatible":
-                _base = config.base_url
-            elif config.provider == "routerai":
-                _base = ROUTERAI_BASE
-            stream = run_openai(
-                config.api_key, config.model_name, messages,
-                base_url=_base,
-                stream=True
-            )
-            for chunk in stream:
-                content = chunk.choices[0].delta.content
-                if content:
-                    yield f"data: {json.dumps({'content': content})}\n\n"
-            yield f"data: {json.dumps({'done': True})}\n\n"
+            try:
+                _base = None
+                if config.provider == "openai_compatible":
+                    _base = config.base_url
+                elif config.provider == "routerai":
+                    _base = ROUTERAI_CHAT_BASE
+                stream = run_openai(
+                    config.api_key, config.model_name, messages,
+                    base_url=_base,
+                    stream=True
+                )
+                for chunk in stream:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        yield f"data: {json.dumps({'content': content})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
 
         def anthropic_generator():
-            with run_anthropic(config.api_key, config.model_name, messages, stream=True) as stream:
-                for text in stream.text_stream:
-                    yield f"data: {json.dumps({'content': text})}\n\n"
-            yield f"data: {json.dumps({'done': True})}\n\n"
+            try:
+                with run_anthropic(config.api_key, config.model_name, messages, stream=True) as stream:
+                    for text in stream.text_stream:
+                        yield f"data: {json.dumps({'content': text})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
 
         def google_generator():
-            response = run_google(config.api_key, config.model_name, messages, stream=True)
-            for chunk in response:
-                if chunk.text:
-                    yield f"data: {json.dumps({'content': chunk.text})}\n\n"
-            yield f"data: {json.dumps({'done': True})}\n\n"
+            try:
+                response = run_google(config.api_key, config.model_name, messages, stream=True)
+                for chunk in response:
+                    if chunk.text:
+                        yield f"data: {json.dumps({'content': chunk.text})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
 
         generators = {
             "openai": openai_generator,

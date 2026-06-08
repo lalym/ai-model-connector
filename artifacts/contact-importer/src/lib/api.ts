@@ -87,6 +87,7 @@ export const api = {
             if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.slice(6));
+                if (data.error) { onError(data.error); return; }
                 if (data.done) { onDone(); return; }
                 if (data.content) onChunk(data.content);
               } catch {}
