@@ -365,6 +365,8 @@ class AIChatView(View):
                 stream = run_openai(config.api_key, config.model_name, messages, base_url=_base, stream=True)
                 full = ""
                 for chunk in stream:
+                    if not chunk.choices:
+                        continue
                     content = chunk.choices[0].delta.content
                     if content:
                         full += content
