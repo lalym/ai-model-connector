@@ -203,8 +203,29 @@ export default function Chat() {
       apiContent = combined.trim();
     }
 
+    const systemPrompt = `You are a contact extraction assistant. Your job is to extract contact information from any text the user provides (business cards, messages, signatures, etc.) and output a structured vCard (VCF) block.
+
+Always respond with:
+1. A brief summary of what you extracted
+2. A vCard block in this format:
+\`\`\`vcard
+BEGIN:VCARD
+VERSION:3.0
+FN:Full Name
+N:LastName;FirstName;;;
+TEL;TYPE=MOBILE:+7...
+EMAIL;TYPE=HOME:email@example.com
+ORG:Company Name
+ADR;TYPE=WORK:;;Street;City;Region;PostalCode;Country
+NOTE:Any extra info
+END:VCARD
+\`\`\`
+
+If multiple contacts are found, output multiple vCard blocks. If a field is not found, omit it. Always include at least FN and one of TEL or EMAIL.`;
+
     const historyMessages: ChatMessage[] = messages.map(m => ({ role: m.role, content: m.content }));
-    const updatedMessages: ChatMessage[] = [...historyMessages, { role: "user", content: apiContent }];
+    const systemMessage: ChatMessage = { role: "system", content: systemPrompt };
+    const updatedMessages: ChatMessage[] = [systemMessage, ...historyMessages, { role: "user", content: apiContent }];
 
     const userMsgId = Date.now().toString();
     const assistantMsgId = (Date.now() + 1).toString();
@@ -349,7 +370,11 @@ export default function Chat() {
           </div>
 
           {/* Sidebar footer */}
-          <div className="border-t px-3 py-2">
+          <div className="border-t px-3 py-2 space-y-0.5">
+            <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-muted-foreground text-xs" onClick={() => setLocation("/contacts")}>
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              Google Contacts
+            </Button>
             <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-muted-foreground text-xs" onClick={() => setLocation("/settings")}>
               <Settings className="h-3.5 w-3.5" /> Model settings
             </Button>

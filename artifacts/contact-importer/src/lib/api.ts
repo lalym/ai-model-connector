@@ -1,5 +1,36 @@
 const BASE = "/api";
 
+export interface GooglePersonName { displayName?: string; givenName?: string; familyName?: string }
+export interface GooglePersonPhone { value?: string; type?: string; canonicalForm?: string }
+export interface GooglePersonEmail { value?: string; type?: string }
+export interface GooglePersonOrg { name?: string; title?: string }
+export interface GooglePersonAddress { formattedValue?: string; type?: string }
+export interface GooglePersonBio { value?: string }
+export interface GooglePersonPhoto { url?: string }
+
+export interface GooglePerson {
+  resourceName?: string;
+  etag?: string;
+  names?: GooglePersonName[];
+  phoneNumbers?: GooglePersonPhone[];
+  emailAddresses?: GooglePersonEmail[];
+  organizations?: GooglePersonOrg[];
+  addresses?: GooglePersonAddress[];
+  biographies?: GooglePersonBio[];
+  photos?: GooglePersonPhoto[];
+}
+
+export interface ContactPayload {
+  name?: string;
+  phone?: string;
+  phones?: string[];
+  email?: string;
+  emails?: string[];
+  organization?: string;
+  address?: string;
+  note?: string;
+}
+
 export interface AIModelConfig {
   id: number;
   name: string;
@@ -84,6 +115,26 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ user_content: userContent, assistant_content: assistantContent }),
       }),
+  },
+
+  contacts: {
+    status: (): Promise<{ connected: boolean }> => request("/contacts/oauth/status"),
+    disconnect: (): Promise<{ disconnected: boolean }> => request("/contacts/oauth/status", { method: "DELETE" }),
+    list: (q?: string, pageToken?: string): Promise<{ contacts: GooglePerson[]; nextPageToken?: string }> => {
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (pageToken) params.set("pageToken", pageToken);
+      return request(`/contacts/list${params.toString() ? "?" + params : ""}`);
+    },
+    create: (data: ContactPayload): Promise<GooglePerson> => request("/contacts/create", { method: "POST", body: JSON.stringify(data) }),
+    update: (resourceName: string, data: ContactPayload): Promise<GooglePerson> =>
+      request(`/contacts/detail/${encodeURIComponent(resourceName)}`, { method: "PATCH", body: JSON.stringify(data) }),
+    delete: (resourceName: string): Promise<{ success: boolean }> =>
+      request(`/contacts/detail/${encodeURIComponent(resourceName)}`, { method: "DELETE" }),
+    checkDuplicates: (data: { name?: string; phone?: string; email?: string }): Promise<{ duplicates: GooglePerson[] }> =>
+      request("/contacts/duplicates", { method: "POST", body: JSON.stringify(data) }),
+    importVCard: (vcard: string): Promise<{ contact: GooglePerson; parsed: ContactPayload }> =>
+      request("/contacts/vcard", { method: "POST", body: JSON.stringify({ vcard }) }),
   },
 
   chat: {
