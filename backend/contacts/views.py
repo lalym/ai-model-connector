@@ -19,9 +19,13 @@ _token_store: dict = {}
 
 
 def _redirect_uri(request):
-    scheme = "https"
-    host = request.get_host()
-    return f"{scheme}://{host}/api/contacts/oauth/callback"
+    host = os.environ.get("REPLIT_DEV_DOMAIN") or os.environ.get("REPLIT_DOMAINS", "").split(",")[0].strip()
+    if host:
+        return f"https://{host}/api/contacts/oauth/callback"
+    # fallback: use forwarded host header
+    forwarded = request.META.get("HTTP_X_FORWARDED_HOST") or request.META.get("HTTP_HOST", "localhost")
+    scheme = "https" if request.is_secure() or "replit" in forwarded else "http"
+    return f"{scheme}://{forwarded}/api/contacts/oauth/callback"
 
 
 def _google_request(method: str, url: str, access_token: str, body=None):
