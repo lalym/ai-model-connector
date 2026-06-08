@@ -9,4 +9,5 @@ urlpatterns = [
     path("ai/models/", views.AIModelsListView.as_view(), name="ai-models"),
     path("ai/sessions/", views.ChatSessionListView.as_view(), name="ai-sessions"),
     path("ai/sessions/<int:session_id>/", views.ChatSessionDetailView.as_view(), name="ai-session-detail"),
+    path("ai/sessions/<int:session_id>/messages/", views.ChatSessionMessagesView.as_view(), name="ai-session-messages"),
 ]

@@ -225,16 +225,27 @@ class AIConfigDetailView(View):
         return JsonResponse({"success": True})
 
 
-def _save_session_messages(session_id, user_content, assistant_content):
-    """Persist a user+assistant turn to the DB. Silent no-op on any error."""
-    try:
-        session = ChatSession.objects.get(id=session_id)
-        raw_user = json.dumps(user_content) if isinstance(user_content, list) else user_content
+@method_decorator(csrf_exempt, name="dispatch")
+class ChatSessionMessagesView(View):
+    """POST: save a user+assistant turn to an existing session."""
+    def post(self, request, session_id):
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON"}, status=400)
+        try:
+            session = ChatSession.objects.get(id=session_id)
+        except ChatSession.DoesNotExist:
+            return JsonResponse({"error": "Not found"}, status=404)
+
+        user_content = data.get("user_content", "")
+        assistant_content = data.get("assistant_content", "")
+
+        raw_user = json.dumps(user_content) if isinstance(user_content, list) else str(user_content)
         ChatHistoryMessage.objects.create(session=session, role="user", content=raw_user)
-        ChatHistoryMessage.objects.create(session=session, role="assistant", content=assistant_content)
+        ChatHistoryMessage.objects.create(session=session, role="assistant", content=str(assistant_content))
         session.save()  # bumps updated_at
-    except Exception:
-        pass
+        return JsonResponse({"ok": True})
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -345,8 +356,6 @@ class AIChatView(View):
             else:
                 return JsonResponse({"error": f"Unknown provider: {provider}"}, status=400)
 
-            if session_id:
-                _save_session_messages(session_id, user_content, content)
             return JsonResponse({"content": content})
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
@@ -371,8 +380,6 @@ class AIChatView(View):
                     if content:
                         full += content
                         yield f"data: {json.dumps({'content': content})}\n\n"
-                if session_id:
-                    _save_session_messages(session_id, user_content, full)
                 yield f"data: {json.dumps({'done': True})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
@@ -384,8 +391,6 @@ class AIChatView(View):
                     for text in stream.text_stream:
                         full += text
                         yield f"data: {json.dumps({'content': text})}\n\n"
-                if session_id:
-                    _save_session_messages(session_id, user_content, full)
                 yield f"data: {json.dumps({'done': True})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
@@ -398,8 +403,6 @@ class AIChatView(View):
                     if chunk.text:
                         full += chunk.text
                         yield f"data: {json.dumps({'content': chunk.text})}\n\n"
-                if session_id:
-                    _save_session_messages(session_id, user_content, full)
                 yield f"data: {json.dumps({'done': True})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"

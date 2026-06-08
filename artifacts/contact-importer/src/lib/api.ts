@@ -75,6 +75,15 @@ export const api = {
       request(`/ai/sessions/${id}/`, { method: "PATCH", body: JSON.stringify({ title }) }),
     delete: (id: number): Promise<{ success: boolean }> =>
       request(`/ai/sessions/${id}/`, { method: "DELETE" }),
+    saveMessages: (
+      id: number,
+      userContent: string | ContentPart[],
+      assistantContent: string
+    ): Promise<{ ok: boolean }> =>
+      request(`/ai/sessions/${id}/messages/`, {
+        method: "POST",
+        body: JSON.stringify({ user_content: userContent, assistant_content: assistantContent }),
+      }),
   },
 
   chat: {

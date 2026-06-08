@@ -227,15 +227,22 @@ export default function Chat() {
       setSessions(prev => [session, ...prev]);
     }
 
+    let fullAssistantReply = "";
     api.chat.stream(
       selectedConfig.id,
       updatedMessages,
       sessionId,
-      (chunk) => setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: m.content + chunk } : m)),
+      (chunk) => {
+        fullAssistantReply += chunk;
+        setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: m.content + chunk } : m));
+      },
       () => {
         setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, streaming: false } : m));
         setIsStreaming(false);
-        // Refresh session list to update `updated_at` ordering
+        // Save messages to DB and refresh sidebar order
+        if (sessionId) {
+          api.sessions.saveMessages(sessionId, apiContent, fullAssistantReply).catch(() => {});
+        }
         api.sessions.list().then(({ sessions }) => setSessions(sessions)).catch(() => {});
       },
       (err) => {
