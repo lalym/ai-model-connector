@@ -6,7 +6,7 @@ from django.http import JsonResponse, StreamingHttpResponse
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-from .models import AIModelConfig
+from .models import AIModelConfig, ChatSession, ChatHistoryMessage
 
 ROUTERAI_BASE = "https://routerai.ru/api"           # base for REST paths (e.g. /v1/models)
 ROUTERAI_CHAT_BASE = "https://routerai.ru/api/v1"  # base_url for OpenAI SDK (appends /chat/completions)
@@ -225,6 +225,74 @@ class AIConfigDetailView(View):
         return JsonResponse({"success": True})
 
 
+def _save_session_messages(session_id, user_content, assistant_content):
+    """Persist a user+assistant turn to the DB. Silent no-op on any error."""
+    try:
+        session = ChatSession.objects.get(id=session_id)
+        raw_user = json.dumps(user_content) if isinstance(user_content, list) else user_content
+        ChatHistoryMessage.objects.create(session=session, role="user", content=raw_user)
+        ChatHistoryMessage.objects.create(session=session, role="assistant", content=assistant_content)
+        session.save()  # bumps updated_at
+    except Exception:
+        pass
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class ChatSessionListView(View):
+    def get(self, request):
+        sessions = ChatSession.objects.all()
+        return JsonResponse({"sessions": [s.to_dict() for s in sessions]})
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON"}, status=400)
+        config = None
+        if data.get("config_id"):
+            try:
+                config = AIModelConfig.objects.get(id=data["config_id"])
+            except AIModelConfig.DoesNotExist:
+                pass
+        session = ChatSession.objects.create(config=config, title=data.get("title", "New Chat"))
+        return JsonResponse({"session": session.to_dict()}, status=201)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class ChatSessionDetailView(View):
+    def _get(self, session_id):
+        try:
+            return ChatSession.objects.get(id=session_id)
+        except ChatSession.DoesNotExist:
+            return None
+
+    def get(self, request, session_id):
+        session = self._get(session_id)
+        if not session:
+            return JsonResponse({"error": "Not found"}, status=404)
+        return JsonResponse({"session": session.to_dict(include_messages=True)})
+
+    def patch(self, request, session_id):
+        session = self._get(session_id)
+        if not session:
+            return JsonResponse({"error": "Not found"}, status=404)
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON"}, status=400)
+        if "title" in data:
+            session.title = data["title"]
+            session.save()
+        return JsonResponse({"session": session.to_dict()})
+
+    def delete(self, request, session_id):
+        session = self._get(session_id)
+        if not session:
+            return JsonResponse({"error": "Not found"}, status=404)
+        session.delete()
+        return JsonResponse({"success": True})
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 class AIChatView(View):
     def post(self, request):
@@ -236,6 +304,7 @@ class AIChatView(View):
         config_id = data.get("config_id")
         messages = data.get("messages", [])
         stream_mode = data.get("stream", False)
+        session_id = data.get("session_id")
 
         if not config_id:
             return JsonResponse({"error": "config_id is required"}, status=400)
@@ -249,14 +318,15 @@ class AIChatView(View):
 
         try:
             if stream_mode:
-                return self._stream_response(config, messages)
+                return self._stream_response(config, messages, session_id=session_id)
             else:
-                return self._sync_response(config, messages)
+                return self._sync_response(config, messages, session_id=session_id)
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
 
-    def _sync_response(self, config, messages):
+    def _sync_response(self, config, messages, session_id=None):
         provider = config.provider
+        user_content = messages[-1]["content"] if messages else ""
         try:
             if provider in ("openai", "openai_compatible", "routerai"):
                 base_url = None
@@ -264,27 +334,26 @@ class AIChatView(View):
                     base_url = config.base_url
                 elif provider == "routerai":
                     base_url = ROUTERAI_CHAT_BASE
-                response = run_openai(
-                    config.api_key, config.model_name, messages,
-                    base_url=base_url
-                )
+                response = run_openai(config.api_key, config.model_name, messages, base_url=base_url)
                 content = response.choices[0].message.content
-                return JsonResponse({"content": content})
             elif provider == "anthropic":
                 response = run_anthropic(config.api_key, config.model_name, messages)
                 content = response.content[0].text
-                return JsonResponse({"content": content})
             elif provider == "google":
                 response = run_google(config.api_key, config.model_name, messages)
                 content = response.text
-                return JsonResponse({"content": content})
             else:
                 return JsonResponse({"error": f"Unknown provider: {provider}"}, status=400)
+
+            if session_id:
+                _save_session_messages(session_id, user_content, content)
+            return JsonResponse({"content": content})
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
 
-    def _stream_response(self, config, messages):
+    def _stream_response(self, config, messages, session_id=None):
         provider = config.provider
+        user_content = messages[-1]["content"] if messages else ""
 
         def openai_generator():
             try:
@@ -293,34 +362,42 @@ class AIChatView(View):
                     _base = config.base_url
                 elif config.provider == "routerai":
                     _base = ROUTERAI_CHAT_BASE
-                stream = run_openai(
-                    config.api_key, config.model_name, messages,
-                    base_url=_base,
-                    stream=True
-                )
+                stream = run_openai(config.api_key, config.model_name, messages, base_url=_base, stream=True)
+                full = ""
                 for chunk in stream:
                     content = chunk.choices[0].delta.content
                     if content:
+                        full += content
                         yield f"data: {json.dumps({'content': content})}\n\n"
+                if session_id:
+                    _save_session_messages(session_id, user_content, full)
                 yield f"data: {json.dumps({'done': True})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
 
         def anthropic_generator():
             try:
+                full = ""
                 with run_anthropic(config.api_key, config.model_name, messages, stream=True) as stream:
                     for text in stream.text_stream:
+                        full += text
                         yield f"data: {json.dumps({'content': text})}\n\n"
+                if session_id:
+                    _save_session_messages(session_id, user_content, full)
                 yield f"data: {json.dumps({'done': True})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
 
         def google_generator():
             try:
+                full = ""
                 response = run_google(config.api_key, config.model_name, messages, stream=True)
                 for chunk in response:
                     if chunk.text:
+                        full += chunk.text
                         yield f"data: {json.dumps({'content': chunk.text})}\n\n"
+                if session_id:
+                    _save_session_messages(session_id, user_content, full)
                 yield f"data: {json.dumps({'done': True})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
@@ -337,10 +414,10 @@ class AIChatView(View):
         if not gen_fn:
             return JsonResponse({"error": f"Unknown provider: {provider}"}, status=400)
 
-        response = StreamingHttpResponse(gen_fn(), content_type="text/event-stream")
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
+        resp = StreamingHttpResponse(gen_fn(), content_type="text/event-stream")
+        resp["Cache-Control"] = "no-cache"
+        resp["X-Accel-Buffering"] = "no"
+        return resp
 
 
 @method_decorator(csrf_exempt, name="dispatch")

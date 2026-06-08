@@ -27,6 +27,22 @@ export interface ChatMessage {
   content: string | ContentPart[];
 }
 
+export interface ChatSession {
+  id: number;
+  title: string;
+  config_id: number | null;
+  created_at: string;
+  updated_at: string;
+  messages?: StoredMessage[];
+}
+
+export interface StoredMessage {
+  id: number;
+  role: "user" | "assistant";
+  content: string | ContentPart[];
+  created_at: string;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -50,16 +66,22 @@ export const api = {
       request(`/ai/configs/${id}/`, { method: "DELETE" }),
   },
 
-  chat: {
-    send: (configId: number, messages: ChatMessage[]): Promise<{ content: string }> =>
-      request("/ai/chat/", {
-        method: "POST",
-        body: JSON.stringify({ config_id: configId, messages, stream: false }),
-      }),
+  sessions: {
+    list: (): Promise<{ sessions: ChatSession[] }> => request("/ai/sessions/"),
+    create: (payload: { config_id: number | null; title: string }): Promise<{ session: ChatSession }> =>
+      request("/ai/sessions/", { method: "POST", body: JSON.stringify(payload) }),
+    get: (id: number): Promise<{ session: ChatSession }> => request(`/ai/sessions/${id}/`),
+    rename: (id: number, title: string): Promise<{ session: ChatSession }> =>
+      request(`/ai/sessions/${id}/`, { method: "PATCH", body: JSON.stringify({ title }) }),
+    delete: (id: number): Promise<{ success: boolean }> =>
+      request(`/ai/sessions/${id}/`, { method: "DELETE" }),
+  },
 
+  chat: {
     stream: (
       configId: number,
       messages: ChatMessage[],
+      sessionId: number | null,
       onChunk: (text: string) => void,
       onDone: () => void,
       onError: (err: string) => void
@@ -67,7 +89,12 @@ export const api = {
       fetch(`${BASE}/ai/chat/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config_id: configId, messages, stream: true }),
+        body: JSON.stringify({
+          config_id: configId,
+          messages,
+          stream: true,
+          session_id: sessionId,
+        }),
       }).then(async (res) => {
         if (!res.ok) {
           const body = await res.json().catch(() => ({ error: "Unknown error" }));
