@@ -18,9 +18,13 @@ export interface CreateConfigPayload {
   base_url?: string;
 }
 
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | ContentPart[];
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {

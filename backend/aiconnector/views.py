@@ -25,6 +25,64 @@ def run_openai(api_key, model_name, messages, base_url=None, stream=False):
     )
 
 
+def _content_to_str(content):
+    """Flatten content (string or parts list) to a plain string."""
+    if isinstance(content, str):
+        return content
+    parts = []
+    for p in content:
+        if p.get("type") == "text":
+            parts.append(p["text"])
+        elif p.get("type") == "image_url":
+            parts.append("[image]")
+    return "\n".join(parts)
+
+
+def _openai_to_anthropic_content(content):
+    """Convert OpenAI content array to Anthropic format."""
+    if isinstance(content, str):
+        return content
+    result = []
+    for p in content:
+        if p.get("type") == "text":
+            result.append({"type": "text", "text": p["text"]})
+        elif p.get("type") == "image_url":
+            url = p["image_url"]["url"]
+            if url.startswith("data:"):
+                # data:<media_type>;base64,<data>
+                header, data = url.split(";base64,", 1)
+                media_type = header[5:]  # strip "data:"
+                result.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": data},
+                })
+    return result
+
+
+def _openai_to_google_parts(content):
+    """Convert OpenAI content array to Google genai parts list."""
+    import base64
+    import google.generativeai as genai
+    if isinstance(content, str):
+        return [content]
+    parts = []
+    for p in content:
+        if p.get("type") == "text":
+            parts.append(p["text"])
+        elif p.get("type") == "image_url":
+            url = p["image_url"]["url"]
+            if url.startswith("data:"):
+                header, data = url.split(";base64,", 1)
+                media_type = header[5:]
+                parts.append(genai.protos.Part(
+                    inline_data=genai.protos.Blob(
+                        mime_type=media_type,
+                        data=base64.b64decode(data),
+                    )
+                ))
+    return parts
+
+
 def run_anthropic(api_key, model_name, messages, stream=False):
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
@@ -32,9 +90,10 @@ def run_anthropic(api_key, model_name, messages, stream=False):
     user_messages = []
     for m in messages:
         if m["role"] == "system":
-            system = m["content"]
+            system = _content_to_str(m["content"])
         else:
-            user_messages.append({"role": m["role"], "content": m["content"]})
+            converted = _openai_to_anthropic_content(m["content"])
+            user_messages.append({"role": m["role"], "content": converted})
     kwargs = {
         "model": model_name,
         "max_tokens": 4096,
@@ -51,23 +110,23 @@ def run_google(api_key, model_name, messages, stream=False):
     import google.generativeai as genai
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
-    # Build history
     history = []
     system_text = None
     for m in messages[:-1]:
         if m["role"] == "system":
-            system_text = m["content"]
+            system_text = _content_to_str(m["content"])
         elif m["role"] == "user":
-            history.append({"role": "user", "parts": [m["content"]]})
+            history.append({"role": "user", "parts": [_content_to_str(m["content"])]})
         elif m["role"] == "assistant":
-            history.append({"role": "model", "parts": [m["content"]]})
-    last_msg = messages[-1]["content"] if messages else ""
+            history.append({"role": "model", "parts": [_content_to_str(m["content"])]})
+    last_content = messages[-1]["content"] if messages else ""
+    last_parts = _openai_to_google_parts(last_content)
     if system_text:
-        last_msg = f"{system_text}\n\n{last_msg}"
+        last_parts = [system_text + "\n\n"] + last_parts
     chat = model.start_chat(history=history)
     if stream:
-        return chat.send_message(last_msg, stream=True)
-    return chat.send_message(last_msg)
+        return chat.send_message(last_parts, stream=True)
+    return chat.send_message(last_parts)
 
 
 @method_decorator(csrf_exempt, name="dispatch")
