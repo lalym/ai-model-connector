@@ -1,10 +1,14 @@
 import json
 import time
+import urllib.request
+import urllib.error
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from .models import AIModelConfig
+
+ROUTERAI_BASE = "https://routerai.ru/api"
 
 
 def run_openai(api_key, model_name, messages, base_url=None, stream=False):
@@ -64,6 +68,33 @@ def run_google(api_key, model_name, messages, stream=False):
     if stream:
         return chat.send_message(last_msg, stream=True)
     return chat.send_message(last_msg)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class AIModelsListView(View):
+    """Fetch available models for a given provider + optional api_key."""
+
+    def get(self, request):
+        provider = request.GET.get("provider", "")
+        api_key = request.GET.get("api_key", "")
+
+        if provider == "routerai":
+            url = f"{ROUTERAI_BASE}/v1/models"
+            try:
+                req = urllib.request.Request(url)
+                if api_key:
+                    req.add_header("Authorization", f"Bearer {api_key}")
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = json.loads(resp.read())
+                models = [
+                    {"id": m["id"], "name": m.get("name", m["id"])}
+                    for m in data.get("data", [])
+                ]
+                return JsonResponse({"models": models})
+            except Exception as e:
+                return JsonResponse({"error": str(e)}, status=502)
+
+        return JsonResponse({"error": f"Model listing not supported for provider: {provider}"}, status=400)
 
 
 @method_decorator(csrf_exempt, name="dispatch")

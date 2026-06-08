@@ -1,28 +1,27 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Plus, Trash2, ArrowLeft, Eye, EyeOff, Loader2, Check } from "lucide-react";
+import {
+  Plus, Trash2, ArrowLeft, Eye, EyeOff, Loader2, Check,
+  ChevronsUpDown, Search,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
+  Popover, PopoverContent, PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from "@/components/ui/command";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { api, AIModelConfig, CreateConfigPayload } from "@/lib/api";
@@ -35,13 +34,15 @@ const PROVIDER_LABELS: Record<AIModelConfig["provider"], string> = {
   openai_compatible: "OpenAI-compatible",
 };
 
-const PROVIDER_DEFAULTS: Record<AIModelConfig["provider"], { model: string; baseUrl?: string; hint?: string }> = {
+const PROVIDER_DEFAULTS: Record<AIModelConfig["provider"], { model: string; baseUrl?: string }> = {
   openai: { model: "gpt-4o" },
   anthropic: { model: "claude-3-5-sonnet-20241022" },
   google: { model: "gemini-1.5-pro" },
-  routerai: { model: "gpt-4o", hint: "Unified gateway to 100+ models (OpenAI, Anthropic, Gemini and more) via routerai.ru" },
+  routerai: { model: "gpt-4o" },
   openai_compatible: { model: "", baseUrl: "" },
 };
+
+interface AvailableModel { id: string; name: string }
 
 const emptyForm = (): CreateConfigPayload => ({
   name: "",
@@ -62,6 +63,12 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Model search
+  const [modelOpen, setModelOpen] = useState(false);
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsFetched, setModelsFetched] = useState(false);
+
   useEffect(() => {
     api.configs.list()
       .then(({ configs }) => setConfigs(configs))
@@ -69,14 +76,41 @@ export default function Settings() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Reset model list when provider changes
   const handleProviderChange = (provider: AIModelConfig["provider"]) => {
     const defaults = PROVIDER_DEFAULTS[provider];
-    setForm((f) => ({
-      ...f,
-      provider,
-      model_name: defaults.model,
-      base_url: defaults.baseUrl ?? "",
-    }));
+    setForm((f) => ({ ...f, provider, model_name: defaults.model, base_url: defaults.baseUrl ?? "" }));
+    setAvailableModels([]);
+    setModelsFetched(false);
+  };
+
+  const fetchModels = useCallback(async () => {
+    if (form.provider !== "routerai") return;
+    setModelsLoading(true);
+    try {
+      const params = new URLSearchParams({ provider: "routerai" });
+      if (form.api_key) params.set("api_key", form.api_key);
+      const res = await fetch(`/api/ai/models/?${params}`);
+      const data = await res.json();
+      if (data.models) {
+        setAvailableModels(data.models);
+        setModelsFetched(true);
+      } else {
+        toast({ title: "Failed to load models", description: data.error, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Failed to load models", variant: "destructive" });
+    } finally {
+      setModelsLoading(false);
+    }
+  }, [form.provider, form.api_key, toast]);
+
+  // Auto-fetch RouterAI models when opening the combobox
+  const handleModelOpenChange = (open: boolean) => {
+    setModelOpen(open);
+    if (open && form.provider === "routerai" && !modelsFetched && !modelsLoading) {
+      fetchModels();
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -87,13 +121,12 @@ export default function Settings() {
     }
     setSaving(true);
     try {
-      const { config } = await api.configs.create({
-        ...form,
-        base_url: form.base_url || undefined,
-      });
+      const { config } = await api.configs.create({ ...form, base_url: form.base_url || undefined });
       setConfigs((prev) => [config, ...prev]);
       setShowForm(false);
       setForm(emptyForm());
+      setAvailableModels([]);
+      setModelsFetched(false);
       toast({ title: "Model added", description: `${config.name} is ready to use.` });
     } catch (err: unknown) {
       toast({ title: "Failed to save", description: String(err), variant: "destructive" });
@@ -111,6 +144,8 @@ export default function Settings() {
       toast({ title: "Failed to delete", variant: "destructive" });
     }
   };
+
+  const isRouterAI = form.provider === "routerai";
 
   return (
     <div className="min-h-screen bg-background">
@@ -136,6 +171,8 @@ export default function Settings() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSave} className="space-y-4">
+
+                {/* Display name */}
                 <div className="space-y-1.5">
                   <Label htmlFor="name">Display name</Label>
                   <Input
@@ -147,16 +184,12 @@ export default function Settings() {
                   />
                 </div>
 
+                {/* Provider + Model name */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label>Provider</Label>
-                    <Select
-                      value={form.provider}
-                      onValueChange={(v) => handleProviderChange(v as AIModelConfig["provider"])}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
+                    <Select value={form.provider} onValueChange={(v) => handleProviderChange(v as AIModelConfig["provider"])}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {Object.entries(PROVIDER_LABELS).map(([value, label]) => (
                           <SelectItem key={value} value={value}>{label}</SelectItem>
@@ -167,16 +200,101 @@ export default function Settings() {
 
                   <div className="space-y-1.5">
                     <Label htmlFor="model">Model name</Label>
-                    <Input
-                      id="model"
-                      placeholder="e.g. gpt-4o"
-                      value={form.model_name}
-                      onChange={(e) => setForm((f) => ({ ...f, model_name: e.target.value }))}
-                      required
-                    />
+
+                    {isRouterAI ? (
+                      /* Searchable combobox for RouterAI */
+                      <Popover open={modelOpen} onOpenChange={handleModelOpenChange}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={modelOpen}
+                            className="w-full justify-between font-normal"
+                          >
+                            <span className="truncate text-left">
+                              {form.model_name || "Select model…"}
+                            </span>
+                            {modelsLoading
+                              ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                              : <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            }
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[320px] p-0" align="start">
+                          <Command>
+                            <CommandInput placeholder="Search models…" />
+                            <CommandList>
+                              {modelsLoading ? (
+                                <div className="flex items-center justify-center py-6 gap-2 text-sm text-muted-foreground">
+                                  <Loader2 className="h-4 w-4 animate-spin" /> Loading models…
+                                </div>
+                              ) : (
+                                <>
+                                  <CommandEmpty>
+                                    {modelsFetched
+                                      ? "No models found."
+                                      : (
+                                        <div className="p-3 text-center space-y-2">
+                                          <p className="text-sm text-muted-foreground">Enter your API key first,<br />then click to load models.</p>
+                                          <Button size="sm" variant="outline" type="button" onClick={fetchModels} className="gap-1.5">
+                                            <Search className="h-3.5 w-3.5" /> Load models
+                                          </Button>
+                                        </div>
+                                      )
+                                    }
+                                  </CommandEmpty>
+                                  {availableModels.length > 0 && (
+                                    <CommandGroup heading={`${availableModels.length} models`}>
+                                      {availableModels.map((m) => (
+                                        <CommandItem
+                                          key={m.id}
+                                          value={`${m.name} ${m.id}`}
+                                          onSelect={() => {
+                                            setForm((f) => ({ ...f, model_name: m.id }));
+                                            setModelOpen(false);
+                                          }}
+                                          className="flex flex-col items-start gap-0.5 py-2"
+                                        >
+                                          <span className="flex w-full items-center gap-2">
+                                            {form.model_name === m.id && (
+                                              <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+                                            )}
+                                            <span className="font-medium text-sm leading-tight">{m.name}</span>
+                                          </span>
+                                          <span className="pl-5 text-xs text-muted-foreground font-mono leading-tight">{m.id}</span>
+                                        </CommandItem>
+                                      ))}
+                                    </CommandGroup>
+                                  )}
+                                </>
+                              )}
+                            </CommandList>
+                          </Command>
+                          {/* Manual entry fallback */}
+                          <div className="border-t p-2">
+                            <Input
+                              placeholder="Or type a model ID manually…"
+                              value={form.model_name}
+                              onChange={(e) => setForm((f) => ({ ...f, model_name: e.target.value }))}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    ) : (
+                      /* Plain input for other providers */
+                      <Input
+                        id="model"
+                        placeholder="e.g. gpt-4o"
+                        value={form.model_name}
+                        onChange={(e) => setForm((f) => ({ ...f, model_name: e.target.value }))}
+                        required
+                      />
+                    )}
                   </div>
                 </div>
 
+                {/* API key */}
                 <div className="space-y-1.5">
                   <Label htmlFor="apikey">API Key</Label>
                   <div className="relative">
@@ -199,14 +317,16 @@ export default function Settings() {
                   </div>
                 </div>
 
-                {form.provider === "routerai" && (
+                {/* RouterAI info */}
+                {isRouterAI && (
                   <div className="rounded-md bg-muted/60 border px-3 py-2 text-xs text-muted-foreground">
                     <span className="font-medium text-foreground">RouterAI</span> — unified gateway to 100+ models (GPT-4o, Claude, Gemini and more) via{" "}
                     <a href="https://routerai.ru" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">routerai.ru</a>.
-                    Base URL is set automatically.
+                    Click the model field to browse available models. Base URL is set automatically.
                   </div>
                 )}
 
+                {/* Custom base URL */}
                 {form.provider === "openai_compatible" && (
                   <div className="space-y-1.5">
                     <Label htmlFor="baseurl">Base URL</Label>
@@ -227,7 +347,7 @@ export default function Settings() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => { setShowForm(false); setForm(emptyForm()); }}
+                    onClick={() => { setShowForm(false); setForm(emptyForm()); setAvailableModels([]); setModelsFetched(false); }}
                   >
                     Cancel
                   </Button>
@@ -263,19 +383,13 @@ export default function Settings() {
                         {PROVIDER_LABELS[c.provider]}
                       </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground truncate">{c.model_name}</p>
+                    <p className="text-sm text-muted-foreground font-mono truncate">{c.model_name}</p>
                     {c.base_url && (
                       <p className="text-xs text-muted-foreground truncate">{c.base_url}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-2 ml-4 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setLocation("/")}
-                    >
-                      Test
-                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setLocation("/")}>Test</Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
@@ -291,10 +405,7 @@ export default function Settings() {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => handleDelete(c.id, c.name)}
-                            className="bg-destructive hover:bg-destructive/90"
-                          >
+                          <AlertDialogAction onClick={() => handleDelete(c.id, c.name)} className="bg-destructive hover:bg-destructive/90">
                             Delete
                           </AlertDialogAction>
                         </AlertDialogFooter>
@@ -307,7 +418,6 @@ export default function Settings() {
           </div>
         )}
 
-        {/* Footer note */}
         <p className="text-xs text-muted-foreground text-center mt-8">
           Supported: OpenAI · Anthropic · Google Gemini · RouterAI · Any OpenAI-compatible endpoint
         </p>

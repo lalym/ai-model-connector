@@ -6,4 +6,5 @@ urlpatterns = [
     path("ai/configs/", views.AIConfigListView.as_view(), name="ai-configs"),
     path("ai/configs/<int:config_id>/", views.AIConfigDetailView.as_view(), name="ai-config-detail"),
     path("ai/chat/", views.AIChatView.as_view(), name="ai-chat"),
+    path("ai/models/", views.AIModelsListView.as_view(), name="ai-models"),
 ]
