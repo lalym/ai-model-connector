@@ -108,7 +108,9 @@ def _parse_vcard(text: str) -> dict:
             parts = value.split(";")
             family = parts[0].strip() if len(parts) > 0 else ""
             given = parts[1].strip() if len(parts) > 1 else ""
-            result["name"] = f"{given} {family}".strip()
+            patronymic = parts[2].strip() if len(parts) > 2 else ""
+            # Russian order: Фамилия Имя Отчество
+            result["name"] = " ".join(p for p in [family, given, patronymic] if p)
         elif key == "TEL":
             phones.append(value)
         elif key == "EMAIL":

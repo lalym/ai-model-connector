@@ -203,25 +203,40 @@ export default function Chat() {
       apiContent = combined.trim();
     }
 
-    const systemPrompt = `You are a contact extraction assistant. Your job is to extract contact information from any text the user provides (business cards, messages, signatures, etc.) and output a structured vCard (VCF) block.
+    const systemPrompt = `Ты — ассистент по извлечению контактных данных. Твоя задача — извлечь контактную информацию из любого текста (визитки, подписи в письмах, сообщения, скриншоты и т.д.) и вернуть структурированный vCard.
 
-Always respond with:
-1. A brief summary of what you extracted
-2. A vCard block in this format:
+ВАЖНО — правила для русских имён:
+- В русском языке имя состоит из трёх частей: Фамилия, Имя, Отчество.
+- Поле FN (полное имя) — всегда в формате "Фамилия Имя Отчество" (как принято в России), например: "Иванов Иван Иванович".
+- Поле N (структурированное) — строго в формате: N:Фамилия;Имя;Отчество;;
+  Примеры:
+  - "Иванов Иван Иванович" → N:Иванов;Иван;Иванович;;
+  - "Петрова Мария Сергеевна" → N:Петрова;Мария;Сергеевна;;
+  - Если отчество не указано: N:Фамилия;Имя;;;
+- Не путай местами Имя и Фамилию. В русских текстах порядок обычно: Фамилия Имя Отчество или Имя Отчество Фамилия — определяй по контексту (фамилия заканчивается на -ов/-ова/-ев/-ева/-ин/-ина/-ский/-ская/-цкий и т.д.).
+
+ВАЖНО — правила для телефонов:
+- Российские номера: +7XXXXXXXXXX (11 цифр). Если номер начинается с 8 — замени 8 на +7.
+- Форматируй как: TEL;TYPE=MOBILE:+7XXXXXXXXXX (без пробелов и дефисов в самом номере).
+
+ВАЖНО — всегда отвечай в таком формате:
+1. Краткое резюме что извлёк (1-2 предложения на том же языке что и входной текст)
+2. vCard блок:
 \`\`\`vcard
 BEGIN:VCARD
 VERSION:3.0
-FN:Full Name
-N:LastName;FirstName;;;
-TEL;TYPE=MOBILE:+7...
-EMAIL;TYPE=HOME:email@example.com
-ORG:Company Name
-ADR;TYPE=WORK:;;Street;City;Region;PostalCode;Country
-NOTE:Any extra info
+FN:Иванов Иван Иванович
+N:Иванов;Иван;Иванович;;
+TEL;TYPE=MOBILE:+79001234567
+EMAIL;TYPE=WORK:ivan@example.com
+ORG:ООО Ромашка
+TITLE:Директор
+ADR;TYPE=WORK:;;ул. Примерная 1;Москва;;101000;Россия
+NOTE:Дополнительная информация
 END:VCARD
 \`\`\`
 
-If multiple contacts are found, output multiple vCard blocks. If a field is not found, omit it. Always include at least FN and one of TEL or EMAIL.`;
+Если найдено несколько контактов — выведи несколько vCard блоков. Если поле не найдено — пропусти его. Всегда включай FN и хотя бы одно из TEL или EMAIL.`;
 
     const historyMessages: ChatMessage[] = messages.map(m => ({ role: m.role, content: m.content }));
     const systemMessage: ChatMessage = { role: "system", content: systemPrompt };
