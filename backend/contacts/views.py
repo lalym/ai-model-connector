@@ -178,17 +178,6 @@ class OAuthCallbackView(View):
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class DebugHeadersView(View):
-    """Temporary: shows request headers to diagnose proxy setup in production."""
-    def get(self, request):
-        keys = ["HTTP_HOST", "HTTP_X_FORWARDED_HOST", "HTTP_X_FORWARDED_PROTO",
-                "HTTP_X_REAL_IP", "HTTP_X_FORWARDED_FOR", "SERVER_NAME", "SERVER_PORT"]
-        headers = {k: request.META.get(k, "") for k in keys}
-        headers["get_host()"] = request.get_host()
-        headers["redirect_uri"] = _redirect_uri(request)
-        return JsonResponse(headers)
-
-@method_decorator(csrf_exempt, name="dispatch")
 class OAuthStatusView(View):
     def get(self, request):
         return JsonResponse({"connected": bool(_token_store.get("access_token"))})
