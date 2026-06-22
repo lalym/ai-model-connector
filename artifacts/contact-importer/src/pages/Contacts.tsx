@@ -342,7 +342,7 @@ export default function ContactsPage() {
 
   const handleGoogleSignIn = () => {
     // Must open in a new tab — Google blocks OAuth inside iframes (Replit preview is an iframe)
-    const oauthUrl = `https://e9da8b5b-c45d-4d6d-b2cc-21fcd23fe6ef-00-2hwh08qrntgwv.pike.replit.dev/api/contacts/oauth/start`;
+    const oauthUrl = `${window.location.origin}/api/contacts/oauth/start`;
     const popup = window.open(oauthUrl, "_blank");
     // Poll status every 2s until connected or popup closed
     const timer = setInterval(async () => {
