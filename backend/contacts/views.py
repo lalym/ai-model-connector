@@ -19,13 +19,15 @@ _token_store: dict = {}
 
 
 def _redirect_uri(request):
-    host = os.environ.get("REPLIT_DEV_DOMAIN") or os.environ.get("REPLIT_DOMAINS", "").split(",")[0].strip()
-    if host:
+    # USE_X_FORWARDED_HOST=True makes request.get_host() use X-Forwarded-Host if present.
+    host = request.get_host()  # e.g. "contact-managment.replit.app" in prod, "localhost" in dev
+    if host and host not in ("localhost", "127.0.0.1") and not host.startswith("localhost:"):
         return f"https://{host}/api/contacts/oauth/callback"
-    # fallback: use forwarded host header
-    forwarded = request.META.get("HTTP_X_FORWARDED_HOST") or request.META.get("HTTP_HOST", "localhost")
-    scheme = "https" if request.is_secure() or "replit" in forwarded else "http"
-    return f"{scheme}://{forwarded}/api/contacts/oauth/callback"
+    # Fallback: prefer REPLIT_DOMAINS (production domain) over REPLIT_DEV_DOMAIN (dev domain)
+    env_host = os.environ.get("REPLIT_DOMAINS", "").split(",")[0].strip() or os.environ.get("REPLIT_DEV_DOMAIN", "")
+    if env_host:
+        return f"https://{env_host}/api/contacts/oauth/callback"
+    return "http://localhost/api/contacts/oauth/callback"
 
 
 def _google_request(method: str, url: str, access_token: str, body=None):
@@ -174,6 +176,17 @@ class OAuthCallbackView(View):
         _token_store["refresh_token"] = tokens.get("refresh_token", _token_store.get("refresh_token"))
         return HttpResponseRedirect("/contacts?connected=1")
 
+
+@method_decorator(csrf_exempt, name="dispatch")
+class DebugHeadersView(View):
+    """Temporary: shows request headers to diagnose proxy setup in production."""
+    def get(self, request):
+        keys = ["HTTP_HOST", "HTTP_X_FORWARDED_HOST", "HTTP_X_FORWARDED_PROTO",
+                "HTTP_X_REAL_IP", "HTTP_X_FORWARDED_FOR", "SERVER_NAME", "SERVER_PORT"]
+        headers = {k: request.META.get(k, "") for k in keys}
+        headers["get_host()"] = request.get_host()
+        headers["redirect_uri"] = _redirect_uri(request)
+        return JsonResponse(headers)
 
 @method_decorator(csrf_exempt, name="dispatch")
 class OAuthStatusView(View):

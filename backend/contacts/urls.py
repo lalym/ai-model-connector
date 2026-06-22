@@ -2,6 +2,7 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path("contacts/debug-headers", views.DebugHeadersView.as_view(), name="contacts-debug-headers"),
     path("contacts/oauth/start", views.OAuthStartView.as_view(), name="contacts-oauth-start"),
     path("contacts/oauth/callback", views.OAuthCallbackView.as_view(), name="contacts-oauth-callback"),
     path("contacts/oauth/status", views.OAuthStatusView.as_view(), name="contacts-oauth-status"),
